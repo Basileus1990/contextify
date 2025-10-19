@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # contextify
-# Recursively print project structure and text file contents in an AI-friendly format.
+# Recursively print project structure and text file contents in AI-friendly format.
 # Optional: copy output to clipboard (-c), open containing folder (-o)
 #
 # Usage: ./contextify [options] [directory]
@@ -24,7 +24,7 @@ Options:
   -m MAX_BYTES    limit max bytes per file (default: 5MB)
   -i EXTLIST      include only listed extensions (comma-separated, e.g. py,txt,md)
   -x EXTLIST      exclude listed extensions (comma-separated, e.g. jpg,pdf,png)
-  -c, --copy      copy output to clipboard (macOS, Linux, WSL supported)
+  -c, --copy      copy output to clipboard
   -o, --open      open file explorer where output file was created
   -h, --help      show this help message
 
@@ -138,75 +138,100 @@ _open_file_explorer() {
   fi
 }
 
+# Recursive tree printer (preorder traversal)
+print_tree() {
+  local dir="$1"
+  local prefix="$2"
+
+  local name="$(basename "$dir")"
+  [[ "$prefix" != "" ]] && echo "${prefix}${name}/"
+
+  # List items in current directory, sorted
+  local item
+  for item in "$dir"/*; do
+    [ -e "$item" ] || continue
+    local base="$(basename "$item")"
+
+    # Skip hidden if needed
+    [[ "$INCLUDE_HIDDEN" -eq 0 && "$base" == .* ]] && continue
+
+    if [ -d "$item" ]; then
+      print_tree "$item" "$prefix  "
+    else
+      echo "${prefix}  $base"
+    fi
+  done
+}
+
+# Dump structure + file contents
 {
   echo "File structure:"
   echo
-
-  find "$ROOT" -print | sort | while IFS= read -r path; do
-    rel="${path#$ROOT/}"
-    [ "$rel" = "$path" ] && rel="."
-    _is_hidden "$rel" && continue
-    depth=$(awk -F"/" '{print NF-1}' <<<"$rel")
-    indent="$(printf "%${depth}s" "" | tr " " "  ")"
-    if [ -d "$path" ]; then
-      printf "%s%s/\n" "$indent" "$(basename -- "$rel")"
-    elif [ -L "$path" ]; then
-      target=$(readlink "$path" 2>/dev/null || echo "?")
-      printf "%s%s -> %s\n" "$indent" "$(basename -- "$rel")" "$target"
-    else
-      printf "%s%s\n" "$indent" "$(basename -- "$rel")"
-    fi
-  done
-
+  print_tree "$ROOT" ""
   echo
   echo "------------------------------------------------"
   echo
 
-  find "$ROOT" -type f -print0 | sort -z | while IFS= read -r -d '' f; do
-    rel="${f#$ROOT/}"
-    _is_hidden "$rel" && continue
-    _is_ext_allowed "$rel" || continue
+  # Recursive traversal for file contents in same order
+  traverse_files() {
+    local dir="$1"
+    for f in "$dir"/*; do
+      [ -e "$f" ] || continue
+      local rel="${f#$ROOT/}"
+      local base="$(basename "$f")"
 
-    if [ ! -r "$f" ]; then
-      echo "###"
-      echo "$rel"
-      echo "size: [unreadable] mime: [unknown] encoding: [unknown] truncated: no"
-      echo
-      echo "[SKIPPED: not readable]"
-      echo
-      continue
-    fi
+      # Hidden files filter
+      [[ "$INCLUDE_HIDDEN" -eq 0 && "$base" == .* ]] && continue
 
-    size=$(stat -c%s -- "$f" 2>/dev/null || stat -f%z -- "$f" 2>/dev/null || echo 0)
-    mime_enc="$(_detect_mime "$f")"
-    mime="${mime_enc%%|*}"
-    enc="${mime_enc##*|}"
+      if [ -d "$f" ]; then
+        traverse_files "$f"
+      else
+        _is_ext_allowed "$rel" || continue
 
-    case "$mime" in
-      image/*|application/pdf|application/zip|application/x-rar|application/octet-stream)
-        continue ;;
-    esac
-    if [ "$enc" = "binary" ] && [[ "$mime" != text/* && "$mime" != application/json && "$mime" != application/xml && "$mime" != application/javascript ]]; then
-      continue
-    fi
+        if [ ! -r "$f" ]; then
+          echo "###"
+          echo "$rel"
+          echo "size: [unreadable] mime: [unknown] encoding: [unknown] truncated: no"
+          echo
+          echo "[SKIPPED: not readable]"
+          echo
+          continue
+        fi
 
-    truncated="no"
-    [ "$size" -gt "$MAX_BYTES" ] && truncated="yes"
+        size=$(stat -c%s -- "$f" 2>/dev/null || stat -f%z -- "$f" 2>/dev/null || echo 0)
+        mime_enc="$(_detect_mime "$f")"
+        mime="${mime_enc%%|*}"
+        enc="${mime_enc##*|}"
 
-    echo "###"
-    echo "$rel"
-    echo "size: $size  mime: $mime  encoding: $enc  truncated: $truncated"
-    echo
+        case "$mime" in
+          image/*|application/pdf|application/zip|application/x-rar|application/octet-stream)
+            continue ;;
+        esac
+        if [ "$enc" = "binary" ] && [[ "$mime" != text/* && "$mime" != application/json && "$mime" != application/xml && "$mime" != application/javascript ]]; then
+          continue
+        fi
 
-    if [ "$size" -le "$MAX_BYTES" ]; then
-      cat -- "$f"
-    else
-      head -c "$MAX_BYTES" -- "$f"
-      echo
-      echo "[... content truncated after $MAX_BYTES bytes ...]"
-    fi
-    echo
-  done
+        truncated="no"
+        [ "$size" -gt "$MAX_BYTES" ] && truncated="yes"
+
+        echo "###"
+        echo "$rel"
+        echo "size: $size  mime: $mime  encoding: $enc  truncated: $truncated"
+        echo
+
+        if [ "$size" -le "$MAX_BYTES" ]; then
+          cat -- "$f"
+        else
+          head -c "$MAX_BYTES" -- "$f"
+          echo
+          echo "[... content truncated after $MAX_BYTES bytes ...]"
+        fi
+        echo
+      fi
+    done
+  }
+
+  traverse_files "$ROOT"
 } | tee "$TMPFILE"
 
 echo
