@@ -29,6 +29,7 @@ It’s designed to create clean, AI-friendly context dumps for tools like ChatGP
 |-m MAX_BYTES	| Limit max bytes per file (default: 5MB)|
 |-i EXTLIST	| Include only listed extensions (e.g. py,txt,md)|
 |-x EXTLIST	| Exclude listed extensions (e.g. jpg,pdf,png)|
+|-c | Copy output to clipboard (requires xclip or pbcopy)|
 |-h	| Show help|
 
 ### Example
@@ -58,7 +59,7 @@ print("Hello, world!")
 ## Installation
 
 ```bash
-git clone https://github.com/<your-username>/contextify.git
+git clone https://github.com/Basileus1990/contextify.git
 cd contextify
 chmod +x contextify
 ```
@@ -66,7 +67,7 @@ chmod +x contextify
 ### Optional global install:
 
 ```bash
-sudo cp contextify /usr/local/bin/contextify
+sudo cp contextify.sh /usr/local/bin/contextify
 ```
 
 ## License
