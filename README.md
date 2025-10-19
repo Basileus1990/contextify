@@ -3,6 +3,8 @@
 `contextify` is a Bash tool that recursively scans a project directory, prints its structure, and extracts the contents of text-based files.  
 It’s designed to create clean, AI-friendly context dumps for tools like ChatGPT or other LLMs.
 
+It was generated with the help of ChatGPT.
+
 ---
 
 ## Features
@@ -30,6 +32,7 @@ It’s designed to create clean, AI-friendly context dumps for tools like ChatGP
 |-i EXTLIST	| Include only listed extensions (e.g. py,txt,md)|
 |-x EXTLIST	| Exclude listed extensions (e.g. jpg,pdf,png)|
 |-c | Copy output to clipboard (requires xclip or pbcopy)|
+| -o | Save the output to a tmp file and open its location with the file explorer |
 |-h	| Show help|
 
 ### Example

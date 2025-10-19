@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # contextify
 # Recursively print project structure and text file contents in an AI-friendly format.
-# Optionally copy the result to the clipboard.
+# Optional: copy output to clipboard (-c), open containing folder (-o)
 #
 # Usage: ./contextify [options] [directory]
 
@@ -13,6 +13,7 @@ INCLUDE_EXT=""
 EXCLUDE_EXT=""
 ROOT="."
 COPY_TO_CLIPBOARD=0
+OPEN_FILE_EXPLORER=0
 
 usage() {
   cat <<USG
@@ -23,16 +24,17 @@ Options:
   -m MAX_BYTES    limit max bytes per file (default: 5MB)
   -i EXTLIST      include only listed extensions (comma-separated, e.g. py,txt,md)
   -x EXTLIST      exclude listed extensions (comma-separated, e.g. jpg,pdf,png)
-  -c, --copy      copy the output to clipboard (macOS, Linux, WSL supported)
-  -h              show this help
+  -c, --copy      copy output to clipboard (macOS, Linux, WSL supported)
+  -o, --open      open file explorer where output file was created
+  -h, --help      show this help message
 
 Example:
-  ./contextify -a -x "jpg,pdf" -c .
+  ./contextify -a -x "jpg,pdf" -c -o .
 USG
   exit 0
 }
 
-# parse flags
+# Parse arguments
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -a) INCLUDE_HIDDEN=1 ;;
@@ -40,6 +42,7 @@ while [[ $# -gt 0 ]]; do
     -i) INCLUDE_EXT="$2"; shift ;;
     -x) EXCLUDE_EXT="$2"; shift ;;
     -c|--copy) COPY_TO_CLIPBOARD=1 ;;
+    -o|--open) OPEN_FILE_EXPLORER=1 ;;
     -h|--help) usage ;;
     *) ROOT="$1" ;;
   esac
@@ -49,7 +52,13 @@ done
 ROOT="${ROOT%/}"
 [ -e "$ROOT" ] || { echo "Error: path not found: $ROOT" >&2; exit 1; }
 
-# extension filtering
+# Create organized temp directory
+TMPDIR="/tmp/contextify"
+mkdir -p "$TMPDIR"
+TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
+TMPFILE="$TMPDIR/contextify_output.${TIMESTAMP}.txt"
+
+# Extension filters
 _is_ext_allowed() {
   local f="$1"
   local ext="${f##*.}"
@@ -71,7 +80,7 @@ _is_ext_allowed() {
   return 0
 }
 
-# hidden files filter
+# Hidden files filter
 _is_hidden() {
   local p="$1"
   [ "$INCLUDE_HIDDEN" -eq 1 ] && return 1
@@ -81,7 +90,7 @@ _is_hidden() {
   esac
 }
 
-# mime detection
+# Detect MIME and encoding
 _detect_mime() {
   local f="$1"
   local mt enc
@@ -90,7 +99,7 @@ _detect_mime() {
   printf "%s|%s" "$mt" "$enc"
 }
 
-# determine clipboard tool
+# Clipboard helper
 _copy_to_clipboard() {
   if command -v pbcopy >/dev/null 2>&1; then
     pbcopy
@@ -106,21 +115,39 @@ _copy_to_clipboard() {
   fi
 }
 
-# output buffer to temp file (to copy later if needed)
-TMPFILE="$(mktemp /tmp/contextify_output.XXXXXX)"
+# File explorer opener
+_open_file_explorer() {
+  local file="$1"
+  local dir
+  dir="$(dirname "$file")"
+
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    open "$dir"
+  elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    if grep -qi microsoft /proc/version 2>/dev/null; then
+      explorer.exe "$(wslpath -w "$dir")"
+    elif command -v xdg-open >/dev/null 2>&1; then
+      xdg-open "$dir" >/dev/null 2>&1 &
+    elif command -v nautilus >/dev/null 2>&1; then
+      nautilus "$dir" >/dev/null 2>&1 &
+    else
+      echo "⚠️  No file explorer found. Folder: $dir" >&2
+    fi
+  else
+    echo "⚠️  File explorer opening not supported on this system." >&2
+  fi
+}
 
 {
   echo "File structure:"
   echo
 
-  # print file structure in sorted order
   find "$ROOT" -print | sort | while IFS= read -r path; do
     rel="${path#$ROOT/}"
     [ "$rel" = "$path" ] && rel="."
     _is_hidden "$rel" && continue
     depth=$(awk -F"/" '{print NF-1}' <<<"$rel")
-    indent=""
-    for ((i=0;i<depth;i++)); do indent+="  "; done
+    indent="$(printf "%${depth}s" "" | tr " " "  ")"
     if [ -d "$path" ]; then
       printf "%s%s/\n" "$indent" "$(basename -- "$rel")"
     elif [ -L "$path" ]; then
@@ -135,7 +162,6 @@ TMPFILE="$(mktemp /tmp/contextify_output.XXXXXX)"
   echo "------------------------------------------------"
   echo
 
-  # dump file contents
   find "$ROOT" -type f -print0 | sort -z | while IFS= read -r -d '' f; do
     rel="${f#$ROOT/}"
     _is_hidden "$rel" && continue
@@ -183,12 +209,16 @@ TMPFILE="$(mktemp /tmp/contextify_output.XXXXXX)"
   done
 } | tee "$TMPFILE"
 
-# copy to clipboard if requested
+echo
+echo "📄 Output saved to: $TMPFILE"
+
 if [ "$COPY_TO_CLIPBOARD" -eq 1 ]; then
-  echo
-  echo "📋 Copying output to clipboard..."
+  echo "📋 Copying to clipboard..."
   cat "$TMPFILE" | _copy_to_clipboard
-  echo "✅ Output copied!"
+  echo "✅ Copied!"
 fi
 
-rm -f "$TMPFILE"
+if [ "$OPEN_FILE_EXPLORER" -eq 1 ]; then
+  echo "📂 Opening file explorer..."
+  _open_file_explorer "$TMPFILE"
+fi
